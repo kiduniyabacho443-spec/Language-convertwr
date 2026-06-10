@@ -1,0 +1,187 @@
+import express from 'express';
+import { GoogleGenAI } from '@google/genai';
+import dotenv from 'dotenv';
+import path from 'path';
+
+dotenv.config();
+
+const app = express();
+app.use(express.json());
+
+// Lazy-initialized Gemini client
+let aiInstance: GoogleGenAI | null = null;
+function getGeminiClient(): GoogleGenAI {
+  if (!aiInstance) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error('GEMINI_API_KEY environment variable is required. Please set it in Settings > Secrets.');
+    }
+    aiInstance = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
+  }
+  return aiInstance;
+}
+
+// Translate API endpoint
+app.post('/api/translate', async (req, res) => {
+  try {
+    const { text, sourceLang, targetLang, contextTone } = req.body;
+    if (!text) {
+      return res.status(400).json({ error: 'Text is required' });
+    }
+
+    const ai = getGeminiClient();
+    const systemInstruction = `You are LingoAI, a highly specialized, professional translation engine.
+Translate the text accurately from "${sourceLang || 'auto-detected language'}" to "${targetLang}".
+Maintain the exact meaning, tone, and nuances of the original text.
+The desired style / tone is: "${contextTone || 'Professional/Academic'}".
+If the output target language expects a specific script, use it. Do not wrap the translation in quotes or any extra markdown formatting unless the original text had it.
+Only return the translated string and nothing else. Do not output translator comments or explanations.`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.5-flash',
+      contents: text,
+      config: {
+        systemInstruction,
+        temperature: 0.3,
+      },
+    });
+
+    res.json({ translation: response.text });
+  } catch (error: any) {
+    console.error('Translation error:', error);
+    res.status(500).json({ error: error?.message || 'Failed to translate' });
+  }
+});
+
+// Detect Language API endpoint
+app.post('/api/detect', async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text) {
+      return res.status(400).json({ error: 'Text is required' });
+    }
+
+    const ai = getGeminiClient();
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.5-flash',
+      contents: `Identify the primary language of the following text. Respond ONLY with the language name (e.g., "English", "French", "Japanese", "Spanish", "German"). Do not write any other punctuation, explanations, or notes.
+Text: ${text.slice(0, 400)}`,
+    });
+
+    const detected = response.text?.trim() || 'Detected';
+    res.json({ language: detected });
+  } catch (error: any) {
+    console.error('Detection error:', error);
+    res.status(500).json({ error: 'Failed to detect language' });
+  }
+});
+
+// Text Enhancer / Refiner endpoint
+app.post('/api/enhance', async (req, res) => {
+  try {
+    const { text, targetLang, contextTone } = req.body;
+    if (!text) {
+      return res.status(400).json({ error: 'Text is required' });
+    }
+
+    const ai = getGeminiClient();
+    const systemInstruction = `You are a professional native copyeditor specializing in translation refinement.
+Enhance and polish the following text, which should be in "${targetLang || 'the original language'}".
+Polish it for peak elegance, perfect grammar, natural idioms, fluid readability, and absolute clarity.
+The translation tone must remain strictly "${contextTone || 'Professional/Academic'}".
+Only return the improved and polished string. Do not include any notes, markdown code blocks, or editor comments.`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.5-flash',
+      contents: text,
+      config: {
+        systemInstruction,
+        temperature: 0.5,
+      },
+    });
+
+    res.json({ enhanced: response.text });
+  } catch (error: any) {
+    console.error('Enhance error:', error);
+    res.status(500).json({ error: 'Failed to enhance text' });
+  }
+});
+
+// TTS audio pronunciation endpoint
+app.post('/api/tts', async (req, res) => {
+  try {
+    const { text, voice } = req.body;
+    if (!text) {
+      return res.status(400).json({ error: 'Text is required' });
+    }
+
+    const ai = getGeminiClient();
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.1-flash-tts-preview',
+      contents: [{ parts: [{ text }] }],
+      config: {
+        responseModalities: ['AUDIO'],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName: voice || 'Kore' },
+          },
+        },
+      },
+    });
+
+    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+    if (base64Audio) {
+      res.json({ audio: base64Audio });
+    } else {
+      res.status(500).json({ error: 'No audio generated by the speech engine' });
+    }
+  } catch (error: any) {
+    console.error('TTS error:', error);
+    res.status(500).json({ error: 'Failed to generate speech. Please ensure the Gemini API Key is configured and has access to the TTS preview model.' });
+  }
+});
+
+const PORT = 3000;
+
+async function startServer() {
+  if (process.env.NODE_ENV === 'production') {
+    app.use(express.static(path.join(process.cwd(), 'dist')));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(process.cwd(), 'dist', 'index.html'));
+    });
+  } else {
+    // Integrate Vite dev server middleware
+    const { createServer: createViteServer } = await import('vite');
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'custom',
+    });
+    app.use(vite.middlewares);
+    app.get('*', async (req, res, next) => {
+      const url = req.originalUrl;
+      try {
+        let template = await import('fs').then(fs => fs.readFileSync(path.resolve(process.cwd(), 'index.html'), 'utf-8'));
+        template = await vite.transformIndexHtml(url, template);
+        res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
+      } catch (e) {
+        vite.ssrFixStacktrace(e as Error);
+        next(e);
+      }
+    });
+  }
+
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server listening on port ${PORT}`);
+  });
+}
+
+startServer().catch(err => {
+  console.error('Failed to start server:', err);
+});

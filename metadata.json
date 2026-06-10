@@ -1,0 +1,6 @@
+{
+  "name": "All Language Converter",
+  "description": "An AI-powered multi-language converter featuring real-time neural translation, automatic language detection, copyediting refinement, and sound pronunciation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

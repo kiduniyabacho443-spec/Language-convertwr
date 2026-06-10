@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+@layer utilities {
+  .bg-mesh {
+    background: radial-gradient(circle at 0% 0%, #1e1b4b 0%, transparent 50%),
+                radial-gradient(circle at 100% 100%, #312e81 0%, transparent 50%),
+                radial-gradient(circle at 50% 50%, #0c0e14 0%, #020617 100%);
+  }
+
+  /* Custom frosted glass utility styles */
+  .glass-card {
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .glass-pane {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .glass-pane-highlighted {
+    background: rgba(99, 102, 241, 0.05);
+    border: 1px solid rgba(99, 102, 241, 0.2);
+  }
+
+  .glass-selector {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .glass-selector:hover {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .text-gradient {
+    background: linear-gradient(to right, #818cf8, #c084fc);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+}
